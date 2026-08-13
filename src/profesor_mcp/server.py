@@ -1,0 +1,519 @@
+"""Servidor MCP 'profesor'.
+
+QUE HACE   : entrega a Claude un andamiaje pedagogico para que explique cualquier tema.
+COMO       : expone 1 tool (la llama Claude) y 1 prompt (la invocas tu con /profesor).
+TRANSPORTE : stdio. Claude Code lanza este archivo como subproceso y habla por stdin/stdout.
+"""
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  MAPA DEL ARCHIVO                                                         ║
+# ╠═══════════════════════════════════════════════════════════════════════════╣
+# ║  ZONA 1  IMPORTS    traer herramientas de fuera                           ║
+# ║  ZONA 2  SERVIDOR   identidad del servidor + log()                        ║
+# ║  ZONA 3  MOLDES     los textos completos, con huecos {asi}                ║
+# ║  ZONA 4  DATOS      los fragmentos que rellenan los huecos                ║
+# ║  ZONA 4.5 FORMULARIOS  la forma de las preguntas del dialogo              ║
+# ║  ZONA 5  TOOL       la llama CLAUDE. Abre el dialogo. async.              ║
+# ║  ZONA 6  PROMPT     lo llamas TU. Verboso, sin dialogo.                   ║
+# ║  ZONA 7  ARRANQUE   pone el servidor a escuchar                           ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+#
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │  DOS PUERTAS DE ENTRADA, DOS COMPORTAMIENTOS                              │
+# ├───────────────────────────────────────────────────────────────────────────┤
+# │  TOOL   (ZONA 5)  la llama Claude    -> SIEMPRE abre el dialogo           │
+# │  PROMPT (ZONA 6)  la llamas tu con / -> verbosa, argumentos escritos      │
+# │                                                                           │
+# │  No es un capricho: la elicitacion SOLO existe durante la ejecucion de    │
+# │  una tool. Un prompt no puede abrir dialogos aunque quisieramos.          │
+# └───────────────────────────────────────────────────────────────────────────┘
+#
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │  LA DIFERENCIA ENTRE ZONA 3 Y ZONA 4                                      │
+# ├───────────────────────────────────────────────────────────────────────────┤
+# │  ZONA 3 = MOLDES.     Textos completos. Se ELIGE uno.                     │
+# │  ZONA 4 = FRAGMENTOS. Trozos sueltos. RELLENAN los huecos del elegido.    │
+# │                                                                           │
+# │  Distinto trabajo -> distinta zona. Nunca se anidan una dentro de otra.   │
+# └───────────────────────────────────────────────────────────────────────────┘
+#
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │  RECETA A: "quiero anadir un METODO nuevo"   (como Cornell o Feynman)     │
+# ├───────────────────────────────────────────────────────────────────────────┤
+# │    1) ZONA 3  ->  variable MOLDE_LOQUESEA con el texto                    │
+# │    2) ZONA 3  ->  una entrada mas en el diccionario MODOS                 │
+# │    3) ZONA 5  ->  el valor nuevo dentro del Literal de 'modo'             │
+# │    4) ZONA 6  ->  igual                                                   │
+# │  El cuerpo de las funciones NO se toca. Ese es el premio del diseno.      │
+# └───────────────────────────────────────────────────────────────────────────┘
+#
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │  RECETA B: "quiero anadir un EJE nuevo"   (como hiciste con 'tono')       │
+# ├───────────────────────────────────────────────────────────────────────────┤
+# │    1) ZONA 4  ->  un diccionario nuevo con los fragmentos                 │
+# │    2) ZONA 3  ->  un hueco {ajuste_X} DENTRO de los moldes que lo usen    │
+# │    3) ZONA 5  ->  firma + docstring + .get() + .format()                  │
+# │    4) ZONA 6  ->  igual                                                   │
+# └───────────────────────────────────────────────────────────────────────────┘
+#
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │  OTRAS RECETAS                                                            │
+# ├───────────────────────────────────────────────────────────────────────────┤
+# │  cambiar el TEXTO de un metodo    ->  solo ZONA 3                         │
+# │  cambiar el TEXTO de un nivel     ->  solo ZONA 4                         │
+# │  cambiar CUANDO se dispara        ->  solo el docstring (ZONA 5)          │
+# └───────────────────────────────────────────────────────────────────────────┘
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  ZONA 1 — IMPORTS                                                         ║
+# ║  Que vive aqui : herramientas que vienen de fuera de este archivo.        ║
+# ║  Tocas esto si : necesitas algo nuevo del lenguaje o del SDK.             ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+# sys      : PYTHON. Solo lo usamos para escribir en stderr. Nunca en stdout.
+import sys
+
+# Literal  : PYTHON (modulo typing). Es un SELECTOR: cierra un parametro a una
+#            lista de valores exactos. El SDK lo traduce a "enum" en el schema.
+from typing import Literal
+
+# BaseModel: PYDANTIC. Es la libreria que YA estaba validando tus parametros por
+#            debajo (la que rechazaba tono='aleman'). Hasta ahora no la tocabas.
+#            Ahora la usas a mano para describir el FORMULARIO del dialogo.
+# Field    : PYDANTIC. Anade descripcion y valor por defecto a un campo.
+#            La descripcion es la etiqueta que ve el humano en el dialogo.
+from pydantic import BaseModel, Field
+
+# MCPServer: SDK. La clase principal. En el SDK v1 se llamaba FastMCP.
+# Context  : SDK. El canal de vuelta hacia el cliente DURANTE la ejecucion.
+#            Con el puedes preguntar (elicit), avisar (log), o reportar progreso.
+#            Hasta ahora tus tools solo devolvian texto y se acababa ahi.
+from mcp.server.mcpserver import Context, MCPServer
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  ZONA 2 — EL SERVIDOR                                                     ║
+# ║  Que vive aqui : la identidad del servidor y la funcion de depuracion.    ║
+# ║  Tocas esto si : cambias el nombre, la version, o como orientas a Claude. ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+mcp = MCPServer(
+    name="profesor",
+    title="Profesor",
+    version="0.1.0",
+    instructions=(
+        "Servidor que impone una prosa explicativa, clara y directa. "
+        "Usa la tool 'explicar' cuando el usuario pida entender un tema, "
+        "no solo resolverlo."
+    ),
+)
+
+
+def log(mensaje: str) -> None:
+    """QUE HACE : imprime para depurar.
+
+    COMO     : escribe en stderr, que NO es el canal del protocolo.
+    FALLA SI : usas print() en su lugar. print() va a stdout, corrompe el JSON
+               del protocolo, y Claude Code desconecta el servidor sin explicacion.
+    """
+    print(mensaje, file=sys.stderr, flush=True)
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  ZONA 3 — LOS MOLDES                                                      ║
+# ║  Que vive aqui : un string completo por cada metodo, y el selector MODOS. ║
+# ║  Tocas esto si : cambias la estructura de un metodo, o anades uno nuevo.  ║
+# ╠═══════════════════════════════════════════════════════════════════════════╣
+# ║  REGLA DE ORO: un {hueco} SOLO existe DENTRO de las comillas de un molde. ║
+# ║                                                                           ║
+# ║  METODOS ABIERTOS  : tienen huecos de nivel y tono -> se modulan.         ║
+# ║  METODOS CERRADOS  : solo {tema}. El metodo ya dicta su propia forma.     ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+# ── MOLDE 1: CLASICO (abierto) ────────────────────────────────────────────────
+#    Huecos: {tema}  {ajuste_nivel}  {ajuste_tono}
+MOLDE_CLASICO = """\
+Explica **{tema}** siguiendo exactamente esta estructura, sin saltarte pasos:
+
+1. **Qué es** — Una sola frase, directa, exponiendo el concepto y las partes que
+   lo conforman. Sin rodeos, sin "es un concepto que...".
+2. **El modelo mental** — Una analogía concreta con algo que ya se conoce.
+   Di explícitamente en qué punto la analogía deja de funcionar.
+3. **El mecanismo** — Cómo funciona por dentro, paso a paso, en orden causal
+   y secuencial. Cada paso debe responder "y entonces qué pasa".
+4. **Ejemplo mínimo** — El caso más pequeño posible que aún sea real.
+   Nada de `foo`/`bar` si el tema admite un ejemplo del mundo real.
+5. **Cómo falla** — Los 2 o 3 errores que comete todo el mundo la primera vez,
+   y qué síntoma produce cada uno. Esto es lo más valioso: dilo con detalle.
+6. **Comprobación** — Una pregunta que solo se puede responder si se entendió
+   el mecanismo. No de memoria: de razonamiento.
+
+Reglas de prosa que aplican a toda la respuesta:
+- Frases cortas. Una idea por frase.
+- Voz activa. "El servidor envía", no "es enviado por el servidor".
+- Cero relleno: nada de "es importante notar que", "cabe destacar", "en resumen".
+- Si usas un término técnico, defínelo en el momento, entre guiones.
+- No pidas permiso para continuar ni ofrezcas "¿quieres que profundice?".
+  Da la explicación completa de una vez.
+
+{ajuste_nivel}
+
+{ajuste_tono}
+"""
+
+# ── MOLDE 2: CORNELL (cerrado) ────────────────────────────────────────────────
+#    Huecos: {tema}
+MOLDE_CORNELL = """\
+Explica **{tema}** con el método Cornell. Divide la respuesta en tres bloques,
+en este orden y con estos títulos exactos:
+
+**NOTAS**
+El desarrollo del tema. Ideas sueltas pero explicadas en su esencia no se puede explicar de forma circular, cada una en su línea, sin párrafos largos.
+Frases telegráficas: son notas, no prosa. Quédate con los detalles que sostienen
+cada idea, no con los que la adornan.
+
+**CLAVES**
+Preguntas y palabras clave que interrogan las notas de arriba. Cada entrada
+apunta a una nota concreta. Escribe preguntas que obliguen a recuperar la nota
+de memoria, no a reconocerla: "¿por qué X provoca Y?" en vez de "¿qué es X?" finalmente añade la respuesta debajo de cada pregunta.
+
+**RESUMEN**
+Tres o cuatro frases escritas para alguien que NO ha leído las notas. Si el
+resumen necesita las notas para entenderse, está mal escrito. Reescríbelo.
+
+Reglas: frases cortas, voz activa, cero relleno. Define cada término técnico
+la primera vez que aparezca.
+"""
+
+# ── MOLDE 3: FEYNMAN (cerrado) ────────────────────────────────────────────────
+#    Huecos: {tema}
+MOLDE_FEYNMAN = """\
+Explica **{tema}** con el método Feynman. Cuatro pasos, en este orden y con
+estos títulos exactos:
+
+**1. EXPLICACIÓN LLANA**
+Explica el tema como se lo explicarías a alguien de doce años en el sentido de la simplicidad lexica y la comprensión directa. Cero jerga.
+Si necesitas una palabra técnica, no la uses todavía: rodéala creando una expresion ad-hoc. Vocabulario
+cotidiano y frases cortas. No te pases con el uso de metaforas, no crees una explicacion minima o mediocre para completarla en la parte 2 sino que haz una funcional
+
+**2. DÓNDE SE ROMPE**
+Ahora completa puntos en profundidad que no se han dicho antes por brevedad o simplificación.
+
+Señala los puntos concretos donde la explicación llana se queda corta: dónde
+simplificaste de más, o dónde hace falta sí o sí un término técnico. Nombra
+ahora esos términos y define cada uno en una frase. Este paso ES el método:
+el hueco de la explicación es el hueco de la comprensión.
+
+**3. ANALOGÍA Y RECONSTRUCCIÓN**
+Esta es la unica parte donde brillan las metaforas perse
+Coge cada punto del paso 2 y explícalo con una analogía concreta y cotidiana.
+Di explícitamente en qué punto cada analogía deja de funcionar — una analogía
+sin límite declarado enseña mal.
+
+**4. PRUEBA DE SIMPLICIDAD**
+Reescribe todo el tema en tres frases, sin jerga y sin analogías. Si no cabe
+en tres frases, no está entendido: vuelve al paso 2 y busca qué falta.
+
+Reglas: frases cortas, voz activa, cero relleno.
+"""
+
+# ── EL SELECTOR ───────────────────────────────────────────────────────────────
+# QUE HACE : mapea el nombre de un metodo a su molde.
+# OJO      : las claves deben coincidir LETRA POR LETRA con el Literal de la
+#            ZONA 5. Si el Literal dice "clasico" y aqui pusieras "CLASICOMCP",
+#            .get() no encontraria la clave y caeria al valor por defecto.
+#            Sin error. Sin aviso. Siempre el mismo molde. Ese es el peligro.
+MODOS = {
+    "clasico": MOLDE_CLASICO,
+    "cornell": MOLDE_CORNELL,
+    "feynman": MOLDE_FEYNMAN,
+}
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  ZONA 4 — LOS DATOS                                                       ║
+# ║  Que vive aqui : un diccionario por cada EJE. Clave -> fragmento.         ║
+# ║  Tocas esto si : cambias el texto de una opcion o anades una opcion.      ║
+# ╠═══════════════════════════════════════════════════════════════════════════╣
+# ║  Estos NO son moldes: son trozos que se meten en el hueco de un molde.    ║
+# ║  Viven al mismo nivel que MODOS, no dentro. Son dos cosas paralelas.      ║
+# ║                                                                           ║
+# ║  Solo el molde CLASICO tiene huecos para ellos. Los cerrados los ignoran, ║
+# ║  y eso se resuelve solo: format ignora lo que sobra. Sin condicionales.   ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+# ── EJE 1: NIVEL ──────────────────────────────────────────────────────────────
+NIVELES = {
+    "novato": (
+        "Nivel NOVATO: asume cero conocimiento previo del área. "
+        "Define cada término técnico la primera vez que aparezca. "
+        "Prioriza la analogía y el ejemplo por encima del mecanismo interno."
+    ),
+    "intermedio": (
+        "Nivel INTERMEDIO: asume que se conocen los fundamentos del área "
+        "pero no este tema concreto. Ve directo al mecanismo. "
+        "Compara con conceptos vecinos que ya se dominan."
+    ),
+    "avanzado": (
+        "Nivel AVANZADO: asume dominio del área. Salta la analogía si no aporta. "
+        "Céntrate en los casos límite, las decisiones de diseño y el porqué "
+        "de que esté hecho así y no de otra forma."
+    ),
+}
+
+# ── EJE 2: TONO ───────────────────────────────────────────────────────────────
+# OJO PYTHON: dos strings pegados se unen SIN espacio.
+#             "seco" "Da una"  ->  "secoDa una"
+TONO = {
+    "formal": (
+        "Tono FORMAL: explicación clásica y de libro sobre la materia. "
+        "Sin abusar de oraciones subordinadas ni de conectores innecesarios. "
+        "Va al grano: directo y seco. Prosa seria y poco relacional."
+    ),
+    "out of the box": (
+        "Tono OUT OF THE BOX: pensamiento lateral sobre el concepto, ajustado "
+        "al nivel indicado. Busca las conexiones que no se ven a priori y los "
+        "ángulos muertos del tema. Señala qué asunciones da por buenas todo el "
+        "mundo sin comprobarlas."
+    ),
+}
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  ZONA 4.5 — LOS FORMULARIOS                                               ║
+# ║  Que vive aqui : la FORMA de las preguntas que abre el dialogo.           ║
+# ║  Tocas esto si : cambias que se pregunta o en que orden.                  ║
+# ╠═══════════════════════════════════════════════════════════════════════════╣
+# ║  Esto no es un molde ni un fragmento: es una TERCERA cosa.                ║
+# ║    molde     -> texto que se elige                                        ║
+# ║    fragmento -> texto que rellena un hueco                                ║
+# ║    formulario-> la forma de una PREGUNTA al humano                        ║
+# ║                                                                           ║
+# ║  COMO FUNCIONA: una clase Pydantic. Cada atributo es un campo del         ║
+# ║  dialogo. Un Literal se traduce a "enum" -> el cliente lo pinta como      ║
+# ║  selector, no como caja de texto. Es la misma traduccion que ya hacian    ║
+# ║  tus parametros, aplicada ahora a una pregunta.                           ║
+# ║                                                                           ║
+# ║  LIMITE DE LA SPEC: solo tipos primitivos (str, int, bool, Literal).      ║
+# ║                     Nada de listas ni objetos anidados.                   ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+
+class EleccionModo(BaseModel):
+    """PASO 1 del dialogo: siempre se pregunta esto."""
+
+    # QUE HACE : un desplegable con los tres metodos.
+    # OJO      : los valores DEBEN coincidir con las claves de MODOS.
+    #            Misma trampa de siempre, ahora en un sitio mas.
+    modo: Literal["clasico", "cornell", "feynman"] = Field(
+        default="clasico",
+        description="Método de explicación",
+    )
+
+
+class AjusteClasico(BaseModel):
+    """PASO 2 del dialogo: SOLO si en el paso 1 se eligio 'clasico'.
+
+    Cornell y Feynman son metodos cerrados: preguntarles nivel o tono
+    no tendria efecto, asi que ni se pregunta.
+    """
+
+    nivel: Literal["novato", "intermedio", "avanzado"] = Field(
+        default="intermedio",
+        description="Profundidad asumida",
+    )
+    tono: Literal["formal", "out of the box"] = Field(
+        default="formal",
+        description="Registro de la prosa",
+    )
+
+
+# QUE HACE : los valores con los que se responde si el humano cancela.
+# POR QUE  : cancelar no puede dejar la tool sin datos. Un solo sitio
+#            donde estan definidos, para no repetirlos por el codigo.
+POR_DEFECTO = {"modo": "clasico", "nivel": "intermedio", "tono": "formal"}
+
+
+async def preguntar(ctx: Context, mensaje: str, formulario: type[BaseModel]):
+    """QUE HACE : abre un dialogo y devuelve lo elegido, o None.
+
+    COMO     : ctx.elicit() manda la pregunta al cliente y ESPERA.
+               La tool se queda parada hasta que el humano responde.
+    DEVUELVE : los datos si acepto. None en cualquier otro caso.
+    POR QUE  : hay TRES desenlaces posibles y solo uno trae datos.
+                 accept  -> el humano eligio        -> devolvemos data
+                 decline -> dijo que no             -> None
+                 cancel  -> cerro el dialogo        -> None
+               Quien llama solo tiene que mirar si es None. Un solo if.
+    FALLA SI : el cliente no sabe abrir dialogos (un cliente de prueba sin
+               callback, por ejemplo). Lo capturamos: en vez de reventar,
+               devolvemos None y la tool tira con los valores por defecto.
+    """
+    try:
+        resultado = await ctx.elicit(message=mensaje, schema=formulario)
+    except Exception as e:  # cliente sin capacidad de dialogo
+        log(f"[profesor] sin dialogo disponible ({type(e).__name__}) -> por defecto")
+        return None
+
+    if resultado.action == "accept":
+        return resultado.data
+
+    log(f"[profesor] dialogo '{resultado.action}' -> por defecto")
+    return None
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  ZONA 5 — LA TOOL                                                         ║
+# ║  Que vive aqui : la funcion que CLAUDE decide llamar, sola.               ║
+# ║  Tocas esto si : anades un parametro, o cambias cuando debe dispararse.   ║
+# ╠═══════════════════════════════════════════════════════════════════════════╣
+# ║     5a  DECORADOR   registra la funcion                                   ║
+# ║     5b  FIRMA       los parametros -> se convierten en el schema          ║
+# ║     5c  DOCSTRING   lo lee Claude para decidir SI usarla                  ║
+# ║     5d  CUERPO      ELEGIR con .get(), RELLENAR con .format()             ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+# ── 5a. DECORADOR ─────────────────────────────────────────────────────────────
+@mcp.tool(
+    name="explicar",
+    title="Explicar un tema",
+)
+# ── 5b. FIRMA ─────────────────────────────────────────────────────────────────
+#      DOS CAMBIOS GORDOS RESPECTO A ANTES:
+#
+#      1) 'async def' en vez de 'def'. Hace falta porque dentro hay 'await':
+#         la funcion se PARA a esperar la respuesta del humano y deja correr
+#         otras cosas mientras. Una funcion normal no sabe pararse.
+#
+#      2) 'ctx: Context' es un parametro que CLAUDE NO VE.
+#         Es la primera excepcion a la regla "la firma es el schema":
+#         el SDK reconoce el tipo Context, lo rellena el solo, y lo saca
+#         del JSON Schema. Compruebalo: el schema solo tendra 'tema'.
+#
+#      Y fijate en lo que YA NO esta: modo, nivel y tono han desaparecido.
+#      Ahora se preguntan en el dialogo, asi que tenerlos aqui seria pedirlos
+#      dos veces. La superficie de la tool se ha hecho MAS PEQUENA.
+async def explicar(tema: str, ctx: Context) -> str:
+    # ── 5c. DOCSTRING ─────────────────────────────────────────────────────────
+    """Devuelve el andamiaje pedagógico para explicar un tema con prosa clara y directa.
+
+    Úsala cuando la persona quiera ENTENDER algo, no solo resolverlo: preguntas
+    del tipo "qué es X", "cómo funciona Y", "por qué Z", "explícame W".
+    No la uses para tareas de ejecución pura (escribe este código, corrige este bug).
+
+    Al ejecutarse abre un diálogo para que la persona elija el método de
+    explicación, y el nivel y el tono si elige el método clásico. No tienes
+    que decidir tú esos valores: solo pasa el tema.
+
+    Args:
+        tema: El tema a explicar, tal como lo formuló la persona.
+
+    Returns:
+        Un bloque de instrucciones que debes seguir al pie de la letra para
+        construir tu respuesta sobre el tema.
+    """
+    # ── 5d. CUERPO ────────────────────────────────────────────────────────────
+    log(f"[profesor] explicar(tema={tema!r}) -> abriendo dialogo")
+
+    # PASO 0 — arrancamos con los valores por defecto ya puestos.
+    #   Asi, si el humano cancela en cualquier punto, ya hay respuesta valida.
+    #   No hay ninguna rama del codigo que acabe sin datos.
+    modo = POR_DEFECTO["modo"]
+    nivel = POR_DEFECTO["nivel"]
+    tono = POR_DEFECTO["tono"]
+
+    # PASO 1 — PREGUNTAR el metodo. Esto sale SIEMPRE.
+    eleccion = await preguntar(
+        ctx,
+        f"¿Con qué método quieres que te explique «{tema}»?",
+        EleccionModo,
+    )
+    if eleccion is not None:
+        modo = eleccion.modo
+
+        # PASO 2 — LA CASCADA. Solo si eligio 'clasico'.
+        #   Cornell y Feynman son cerrados: preguntarles nivel o tono no
+        #   tendria efecto (sus moldes no tienen esos huecos), asi que ni
+        #   se pregunta. El dialogo no hace perder el tiempo con opciones
+        #   que no van a cambiar nada.
+        if modo == "clasico":
+            ajuste = await preguntar(
+                ctx,
+                "Ajusta la explicación clásica:",
+                AjusteClasico,
+            )
+            if ajuste is not None:
+                nivel = ajuste.nivel
+                tono = ajuste.tono
+
+    log(f"[profesor] resuelto -> modo={modo!r}, nivel={nivel!r}, tono={tono!r}")
+
+    # PASO 3 — ELEGIR y RELLENAR. Esta parte NO ha cambiado nada.
+    #   Da igual si los valores vienen de un dialogo, de un parametro o de
+    #   un default: a partir de aqui son tres strings. Por eso el cambio
+    #   no ha tocado ni MODOS, ni NIVELES, ni TONO, ni los moldes.
+    molde = MODOS.get(modo, MODOS["clasico"])
+    ajuste_nivel = NIVELES.get(nivel, NIVELES["intermedio"])
+    ajuste_tono = TONO.get(tono, TONO["formal"])
+
+    return molde.format(
+        tema=tema,
+        ajuste_nivel=ajuste_nivel,
+        ajuste_tono=ajuste_tono,
+    )
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  ZONA 6 — EL PROMPT                                                       ║
+# ║  Que vive aqui : lo mismo que la tool, pero lo disparas TU con /profesor. ║
+# ║  Tocas esto si : tocaste la ZONA 5. Van en pareja, siempre.               ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+
+@mcp.prompt(
+    name="profesor",
+    title="Modo profesor",
+    description="Fuerza una explicación estructurada y directa sobre un tema.",
+)
+def prompt_profesor(
+    tema: str,
+    modo: str = "clasico",
+    nivel: str = "intermedio",
+    tono: str = "formal",
+) -> str:
+    """Plantilla que inyecta el andamiaje directamente en la conversación.
+
+    Args:
+        tema: Lo que quieres que te explique.
+        modo: clasico | cornell | feynman.
+        nivel: novato | intermedio | avanzado.  (solo afecta a 'clasico')
+        tono: formal | out of the box.          (solo afecta a 'clasico')
+    """
+    log(f"[profesor] prompt(tema={tema!r}, modo={modo!r}, nivel={nivel!r}, tono={tono!r})")
+    # MISMO PATRON que la ZONA 5. Tres elecciones, un relleno.
+    molde = MODOS.get(modo, MODOS["clasico"])
+    ajuste_nivel = NIVELES.get(nivel, NIVELES["intermedio"])
+    ajuste_tono = TONO.get(tono, TONO["formal"])
+    return molde.format(
+        tema=tema,
+        ajuste_nivel=ajuste_nivel,
+        ajuste_tono=ajuste_tono,
+    )
+
+
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  ZONA 7 — EL ARRANQUE                                                     ║
+# ║  Que vive aqui : lo que convierte este archivo en un servidor.            ║
+# ║  Tocas esto si : casi nunca. Cambia solo si pasas de stdio a HTTP.        ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+
+def main() -> None:
+    """Punto de entrada. Lo llama el script 'profesor-mcp' del pyproject.toml."""
+    log("[profesor] arrancando en modo stdio")
+    mcp.run(transport="stdio")
+
+
+if __name__ == "__main__":
+    main()

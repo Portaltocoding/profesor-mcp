@@ -128,11 +128,15 @@ def log(mensaje: str) -> None:
 # ║  REGLA DE ORO: un {hueco} SOLO existe DENTRO de las comillas de un molde. ║
 # ║                                                                           ║
 # ║  METODOS ABIERTOS  : tienen huecos de nivel y tono -> se modulan.         ║
-# ║  METODOS CERRADOS  : solo {tema}. El metodo ya dicta su propia forma.     ║
+# ║  METODOS CERRADOS  : no tienen nivel ni tono. El metodo dicta su forma.   ║
+# ║                                                                           ║
+# ║  LA EXCEPCION: {ajuste_extension} lo llevan LOS TRES. La extension no es  ║
+# ║  parte del metodo, es cuanto texto ocupa ejecutarlo. Un Cornell corto     ║
+# ║  sigue siendo un Cornell; un Cornell sin tono no seria nada distinto.     ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
 # ── MOLDE 1: CLASICO (abierto) ────────────────────────────────────────────────
-#    Huecos: {tema}  {ajuste_nivel}  {ajuste_tono}
+#    Huecos: {tema}  {ajuste_nivel}  {ajuste_tono}  {ajuste_extension}
 MOLDE_CLASICO = """\
 Explica **{tema}** siguiendo exactamente esta estructura, sin saltarte pasos:
 
@@ -160,10 +164,12 @@ Reglas de prosa que aplican a toda la respuesta:
 {ajuste_nivel}
 
 {ajuste_tono}
+
+{ajuste_extension}
 """
 
 # ── MOLDE 2: CORNELL (cerrado) ────────────────────────────────────────────────
-#    Huecos: {tema}
+#    Huecos: {tema}  {ajuste_extension}
 MOLDE_CORNELL = """\
 Explica **{tema}** con el método Cornell. Divide la respuesta en tres bloques,
 en este orden y con estos títulos exactos:
@@ -184,10 +190,12 @@ resumen necesita las notas para entenderse, está mal escrito. Reescríbelo.
 
 Reglas: frases cortas, voz activa, cero relleno. Define cada término técnico
 la primera vez que aparezca.
+
+{ajuste_extension}
 """
 
 # ── MOLDE 3: FEYNMAN (cerrado) ────────────────────────────────────────────────
-#    Huecos: {tema}
+#    Huecos: {tema}  {ajuste_extension}
 MOLDE_FEYNMAN = """\
 Explica **{tema}** con el método Feynman. Cuatro pasos, en este orden y con
 estos títulos exactos:
@@ -216,6 +224,29 @@ Reescribe todo el tema en tres frases, sin jerga y sin analogías. Si no cabe
 en tres frases, no está entendido: vuelve al paso 2 y busca qué falta.
 
 Reglas: frases cortas, voz activa, cero relleno.
+
+{ajuste_extension}
+"""
+
+# ── MOLDE 4: LIBRE (la puerta de salida) ──────────────────────────────────────
+#    Huecos: {tema}  {ajuste_extension}
+#
+#    POR QUE EXISTE: sin esto, la unica forma de decir "esta vez no" era quitar
+#    el servidor entero. Global, permanente y con reinicio, para una respuesta.
+#    Aqui la renuncia vale una linea del desplegable.
+#
+#    OJO A LO QUE NO LLEVA: ni nivel, ni tono, ni reglas de prosa. Si le
+#    colaramos "frases cortas, voz activa" seguirias dentro del andamiaje,
+#    solo que con menos pasos. Elegir 'libre' tiene que devolverte a Claude
+#    tal cual, o no es una salida: es otro molde mas disfrazado.
+MOLDE_LIBRE = """\
+Explica **{tema}** sin andamiaje.
+
+No apliques ningún método fijo. Sin apartados obligatorios, sin analogía de
+oficio, sin pregunta de comprobación al final. Elige tú la forma que mejor le
+venga al tema y responde como responderías si nadie te hubiera dado un guion.
+
+{ajuste_extension}
 """
 
 # ── EL SELECTOR ───────────────────────────────────────────────────────────────
@@ -228,6 +259,7 @@ MODOS = {
     "clasico": MOLDE_CLASICO,
     "cornell": MOLDE_CORNELL,
     "feynman": MOLDE_FEYNMAN,
+    "libre": MOLDE_LIBRE,
 }
 
 
@@ -239,8 +271,9 @@ MODOS = {
 # ║  Estos NO son moldes: son trozos que se meten en el hueco de un molde.    ║
 # ║  Viven al mismo nivel que MODOS, no dentro. Son dos cosas paralelas.      ║
 # ║                                                                           ║
-# ║  Solo el molde CLASICO tiene huecos para ellos. Los cerrados los ignoran, ║
-# ║  y eso se resuelve solo: format ignora lo que sobra. Sin condicionales.   ║
+# ║  NIVEL y TONO solo los consume el molde CLASICO. Los cerrados los         ║
+# ║  ignoran, y eso se resuelve solo: format ignora lo que sobra. Sin ifs.    ║
+# ║  EXTENSION la consumen los tres. Ver la nota de la ZONA 3.                ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
 # ── EJE 1: NIVEL ──────────────────────────────────────────────────────────────
@@ -279,6 +312,30 @@ TONO = {
     ),
 }
 
+# ── EJE 3: EXTENSION ──────────────────────────────────────────────────────────
+# OJO: este eje lo consumen LOS CUATRO moldes, no solo el clasico. Por eso los
+#      fragmentos hablan de "apartados o puntos" y no de pasos concretos:
+#      tienen que valer igual para las 6 secciones del clasico, los 3 bloques
+#      de Cornell, los 4 pasos de Feynman y la forma libre, que no tiene
+#      apartados de ningun tipo.
+#
+# LA REGLA QUE SOSTIENE ESTE EJE: 'corto' recorta el DESARROLLO, nunca la
+#      ESTRUCTURA. Si dejara borrar apartados, el metodo se rompe y ya no
+#      estarias eligiendo extension: estarias eligiendo otro metodo distinto.
+EXTENSION = {
+    "normal": (
+        "Extensión NORMAL: desarrolla cada apartado o punto hasta que quede "
+        "entendido. Ni alargues por alargar ni recortes el mecanismo o los "
+        "fallos, que son lo que de verdad enseña."
+    ),
+    "corto": (
+        "Extensión CORTA: no dejes fuera ningún apartado ni ningún punto que "
+        "fueras a cubrir, pero reduce cada uno a su núcleo: tres frases como "
+        "máximo. Un solo ejemplo. Una sola analogía. Nada de listas anidadas. "
+        "Si algo no cabe en tres frases, sobra texto: no falta espacio."
+    ),
+}
+
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
 # ║  ZONA 4.5 — LOS FORMULARIOS                                               ║
@@ -301,14 +358,23 @@ TONO = {
 
 
 class EleccionModo(BaseModel):
-    """PASO 1 del dialogo: siempre se pregunta esto."""
+    """PASO 1 del dialogo: siempre se pregunta esto.
+
+    Van juntos modo y extension porque los dos aplican SIEMPRE, elijas el
+    metodo que elijas. Lo que solo vale para 'clasico' vive en el paso 2.
+    """
 
     # QUE HACE : un desplegable con los tres metodos.
     # OJO      : los valores DEBEN coincidir con las claves de MODOS.
     #            Misma trampa de siempre, ahora en un sitio mas.
-    modo: Literal["clasico", "cornell", "feynman"] = Field(
+    modo: Literal["clasico", "cornell", "feynman", "libre"] = Field(
         default="clasico",
-        description="Método de explicación",
+        description="Método de explicación ('libre' = sin andamiaje)",
+    )
+    # OJO : mismos valores que las claves de EXTENSION.
+    extension: Literal["normal", "corto"] = Field(
+        default="normal",
+        description="Extensión de la explicación",
     )
 
 
@@ -332,7 +398,12 @@ class AjusteClasico(BaseModel):
 # QUE HACE : los valores con los que se responde si el humano cancela.
 # POR QUE  : cancelar no puede dejar la tool sin datos. Un solo sitio
 #            donde estan definidos, para no repetirlos por el codigo.
-POR_DEFECTO = {"modo": "clasico", "nivel": "intermedio", "tono": "formal"}
+POR_DEFECTO = {
+    "modo": "clasico",
+    "nivel": "intermedio",
+    "tono": "formal",
+    "extension": "normal",
+}
 
 
 async def preguntar(ctx: Context, mensaje: str, formulario: type[BaseModel]):
@@ -403,8 +474,12 @@ async def explicar(tema: str, ctx: Context) -> str:
     No la uses para tareas de ejecución pura (escribe este código, corrige este bug).
 
     Al ejecutarse abre un diálogo para que la persona elija el método de
-    explicación, y el nivel y el tono si elige el método clásico. No tienes
-    que decidir tú esos valores: solo pasa el tema.
+    explicación y su extensión, y además el nivel y el tono si elige el método
+    clásico. No tienes que decidir tú esos valores: solo pasa el tema.
+
+    El diálogo incluye la opción 'libre', que renuncia al andamiaje. Por eso
+    puedes llamar a esta tool sin miedo a encorsetar la respuesta: si la
+    persona no quiere método, lo dice ahí.
 
     Args:
         tema: El tema a explicar, tal como lo formuló la persona.
@@ -422,21 +497,23 @@ async def explicar(tema: str, ctx: Context) -> str:
     modo = POR_DEFECTO["modo"]
     nivel = POR_DEFECTO["nivel"]
     tono = POR_DEFECTO["tono"]
+    extension = POR_DEFECTO["extension"]
 
-    # PASO 1 — PREGUNTAR el metodo. Esto sale SIEMPRE.
+    # PASO 1 — PREGUNTAR el metodo y la extension. Esto sale SIEMPRE.
     eleccion = await preguntar(
         ctx,
-        f"¿Con qué método quieres que te explique «{tema}»?",
+        f"¿Cómo quieres que te explique «{tema}»?",
         EleccionModo,
     )
     if eleccion is not None:
         modo = eleccion.modo
+        extension = eleccion.extension
 
         # PASO 2 — LA CASCADA. Solo si eligio 'clasico'.
-        #   Cornell y Feynman son cerrados: preguntarles nivel o tono no
-        #   tendria efecto (sus moldes no tienen esos huecos), asi que ni
-        #   se pregunta. El dialogo no hace perder el tiempo con opciones
-        #   que no van a cambiar nada.
+        #   Cornell, Feynman y libre no tienen huecos de nivel ni de tono,
+        #   asi que preguntarlos no cambiaria nada. El dialogo no hace perder
+        #   el tiempo con opciones sin efecto — y menos aun a quien acaba de
+        #   pedir explicitamente que no le impongan forma.
         if modo == "clasico":
             ajuste = await preguntar(
                 ctx,
@@ -447,20 +524,25 @@ async def explicar(tema: str, ctx: Context) -> str:
                 nivel = ajuste.nivel
                 tono = ajuste.tono
 
-    log(f"[profesor] resuelto -> modo={modo!r}, nivel={nivel!r}, tono={tono!r}")
+    log(
+        f"[profesor] resuelto -> modo={modo!r}, nivel={nivel!r}, "
+        f"tono={tono!r}, extension={extension!r}"
+    )
 
-    # PASO 3 — ELEGIR y RELLENAR. Esta parte NO ha cambiado nada.
+    # PASO 3 — ELEGIR y RELLENAR.
     #   Da igual si los valores vienen de un dialogo, de un parametro o de
-    #   un default: a partir de aqui son tres strings. Por eso el cambio
-    #   no ha tocado ni MODOS, ni NIVELES, ni TONO, ni los moldes.
+    #   un default: a partir de aqui son strings. Por eso anadir un eje solo
+    #   ha costado una linea aqui y una linea en el .format().
     molde = MODOS.get(modo, MODOS["clasico"])
     ajuste_nivel = NIVELES.get(nivel, NIVELES["intermedio"])
     ajuste_tono = TONO.get(tono, TONO["formal"])
+    ajuste_extension = EXTENSION.get(extension, EXTENSION["normal"])
 
     return molde.format(
         tema=tema,
         ajuste_nivel=ajuste_nivel,
         ajuste_tono=ajuste_tono,
+        ajuste_extension=ajuste_extension,
     )
 
 
@@ -481,24 +563,31 @@ def prompt_profesor(
     modo: str = "clasico",
     nivel: str = "intermedio",
     tono: str = "formal",
+    extension: str = "normal",
 ) -> str:
     """Plantilla que inyecta el andamiaje directamente en la conversación.
 
     Args:
         tema: Lo que quieres que te explique.
-        modo: clasico | cornell | feynman.
+        modo: clasico | cornell | feynman | libre (sin andamiaje).
         nivel: novato | intermedio | avanzado.  (solo afecta a 'clasico')
         tono: formal | out of the box.          (solo afecta a 'clasico')
+        extension: normal | corto.              (afecta a los tres metodos)
     """
-    log(f"[profesor] prompt(tema={tema!r}, modo={modo!r}, nivel={nivel!r}, tono={tono!r})")
-    # MISMO PATRON que la ZONA 5. Tres elecciones, un relleno.
+    log(
+        f"[profesor] prompt(tema={tema!r}, modo={modo!r}, nivel={nivel!r}, "
+        f"tono={tono!r}, extension={extension!r})"
+    )
+    # MISMO PATRON que la ZONA 5. Cuatro elecciones, un relleno.
     molde = MODOS.get(modo, MODOS["clasico"])
     ajuste_nivel = NIVELES.get(nivel, NIVELES["intermedio"])
     ajuste_tono = TONO.get(tono, TONO["formal"])
+    ajuste_extension = EXTENSION.get(extension, EXTENSION["normal"])
     return molde.format(
         tema=tema,
         ajuste_nivel=ajuste_nivel,
         ajuste_tono=ajuste_tono,
+        ajuste_extension=ajuste_extension,
     )
 
 

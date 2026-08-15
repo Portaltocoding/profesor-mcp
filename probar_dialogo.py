@@ -59,6 +59,10 @@ async def caso(titulo: str, respuestas: list) -> None:
                 molde = "CORNELL"
             elif "EXPLICACIÓN LLANA" in texto:
                 molde = "FEYNMAN"
+            elif "**1. CONTRATO**" in texto:
+                molde = "MANUAL"
+            elif "sin andamiaje" in texto:
+                molde = "LIBRE"
             else:
                 molde = "???"
             nivel = next((n for n in ("NOVATO", "INTERMEDIO", "AVANZADO") if f"Nivel {n}" in texto), "-")
@@ -84,6 +88,17 @@ async def main() -> None:
 
     # 5. Elige clasico y cancela el segundo -> clasico + defaults
     await caso("clasico, cancela el paso 2", [{"modo": "clasico"}, "cancel"])
+
+    # 6. Elige manual -> cascada propia. Mira los CAMPOS del segundo dialogo:
+    #    tiene que salir ['nivel'] a secas. Si ahi apareciera 'tono', estariamos
+    #    preguntando algo que el molde tira, que es justo lo que no queremos.
+    await caso("manual + nivel", [{"modo": "manual"}, {"nivel": "novato"}])
+
+    # 7. Elige manual y cancela el paso 2 -> manual con nivel por defecto
+    await caso("manual, cancela el paso 2", [{"modo": "manual"}, "cancel"])
+
+    # 8. Elige libre -> sin cascada, como los cerrados
+    await caso("libre (sin cascada)", [{"modo": "libre"}])
 
 
 if __name__ == "__main__":

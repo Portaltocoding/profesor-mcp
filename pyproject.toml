@@ -1,12 +1,31 @@
 [project]
 name = "profesor-mcp"
 version = "0.1.0"
-description = "Add your description here"
+description = "Servidor MCP que impone una prosa clara, directa y explicativa: cinco moldes de explicacion (clasico, Cornell, Feynman, manual, libre) con dialogo interactivo."
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Carlos Portal" }]
+keywords = ["mcp", "model-context-protocol", "claude", "llm", "pedagogia", "explicacion"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Education",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Natural Language :: Spanish",
+]
 dependencies = [
     "mcp[cli]>=2.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Portaltocoding/profesor-mcp"
+Repository = "https://github.com/Portaltocoding/profesor-mcp"
+Issues = "https://github.com/Portaltocoding/profesor-mcp/issues"
 
 [project.scripts]
 profesor-mcp = "profesor_mcp:main"

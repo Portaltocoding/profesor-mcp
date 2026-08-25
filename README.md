@@ -127,6 +127,32 @@ profesor-mcp/
 
 ---
 
+## Instalación
+
+Publicado en PyPI. No hace falta clonar el repo: `uvx` lo descarga, lo aísla y
+lo ejecuta, igual que `npx` con un paquete de npm.
+
+```bash
+claude mcp add profesor --scope user -- uvx profesor-mcp
+```
+
+En cualquier otro cliente MCP (app de Claude, Cursor, Zed, Cline…), el bloque
+equivalente en su fichero de configuración:
+
+```json
+{
+  "mcpServers": {
+    "profesor": { "command": "uvx", "args": ["profesor-mcp"] }
+  }
+}
+```
+
+Requiere Python ≥ 3.12 y [uv](https://docs.astral.sh/uv/). Funciona en Linux,
+macOS y Windows: es Python puro sobre stdio, sin nada específico de plataforma.
+En Windows, si los acentos salen rotos, añade `"env": {"PYTHONUTF8": "1"}`.
+
+---
+
 ## Cómo se usa
 
 ```bash

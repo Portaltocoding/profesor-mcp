@@ -108,10 +108,24 @@ Tres niveles: `novato` · `intermedio` · `avanzado`.
 ```
 profesor-mcp/
 ├── pyproject.toml              # dependencias + declara el comando profesor-mcp
+├── src/profesor_mcp/
+│   ├── __init__.py             # reexporta main() para el comando
+│   └── server.py               # EL SERVIDOR. Fuente de verdad de los moldes.
+│
+├── generar_ts.py               # server.py  ──►  ts/src/moldes.ts
+├── ts/                         # el gemelo en TypeScript (paquete npm)
+│   ├── package.json
+│   └── src/
+│       ├── moldes.ts           # GENERADO. No se edita.
+│       └── server.ts           # la mecánica, escrita a mano
+│
 ├── probar.py                   # cliente de prueba: arranca el server y lo interroga
-└── src/profesor_mcp/
-    ├── __init__.py             # reexporta main() para el comando
-    └── server.py               # el servidor. 6 bloques comentados.
+├── probar_dialogo.py           # recorre las ramas de la cascada del diálogo
+├── probar_paridad.py           # Python vs TypeScript, byte a byte
+│
+├── metodo_manual.py            # derivación del MOLDE_MANUAL y su evidencia
+├── 00-anatomia-de-un-mcp.ipynb # entender el protocolo
+└── 01-escribe-tu-propio-mcp.ipynb  # escribir el tuyo
 ```
 
 `server.py` por bloques:
@@ -129,12 +143,19 @@ profesor-mcp/
 
 ## Instalación
 
-Publicado en PyPI. No hace falta clonar el repo: `uvx` lo descarga, lo aísla y
-lo ejecuta, igual que `npx` con un paquete de npm.
+El servidor existe **dos veces**: en Python y en TypeScript. Hacen exactamente
+lo mismo y devuelven el mismo texto. Elige según lo que ya tengas instalado.
 
 ```bash
+# Python — desde PyPI
 claude mcp add profesor --scope user -- uvx profesor-mcp
+
+# Node — desde npm
+claude mcp add profesor --scope user -- npx -y profesor-mcp
 ```
+
+`uvx` es a `uv` lo que `npx` a npm: descarga el paquete, lo aísla y lo ejecuta.
+No hace falta clonar el repositorio.
 
 En cualquier otro cliente MCP (app de Claude, Cursor, Zed, Cline…), el bloque
 equivalente en su fichero de configuración:
@@ -147,9 +168,40 @@ equivalente en su fichero de configuración:
 }
 ```
 
-Requiere Python ≥ 3.12 y [uv](https://docs.astral.sh/uv/). Funciona en Linux,
-macOS y Windows: es Python puro sobre stdio, sin nada específico de plataforma.
-En Windows, si los acentos salen rotos, añade `"env": {"PYTHONUTF8": "1"}`.
+Requisitos: Python ≥ 3.12 con [uv](https://docs.astral.sh/uv/), o Node ≥ 18.
+Funciona en Linux, macOS y Windows: no hay nada específico de plataforma en
+ninguna de las dos versiones. En Windows, si los acentos salen rotos en la
+versión de Python, añade `"env": {"PYTHONUTF8": "1"}`.
+
+### Por qué dos paquetes y no uno
+
+npm y PyPI no son sitios donde se publican MCPs: son registros de lenguaje, y
+cada uno trae su intérprete detrás. Node no ejecuta Python. MCP en cambio no
+tiene lenguaje —es JSON-RPC por stdin/stdout— así que el host no distingue una
+versión de la otra: lanza un comando y le manda JSON.
+
+La alternativa habitual, publicar en npm un envoltorio JavaScript que llame a
+Python por debajo, obligaría a tener Node *y* Python instalados a cambio de
+nada. Aquí las dos son nativas.
+
+### Cómo se evita que se separen
+
+Los moldes son 385 líneas de prosa y son el valor del proyecto. Si vivieran en
+los dos sitios, se bifurcarían. No hay dos copias: hay una fuente y una
+derivación.
+
+```
+  src/profesor_mcp/server.py   ← los moldes se escriben AQUI, y solo aquí
+            │
+            │  uv run python generar_ts.py
+            ▼
+      ts/src/moldes.ts         ← generado. Editarlo no sirve de nada.
+```
+
+`probar_paridad.py` lo verifica: lanza los dos servidores, recorre las 61
+combinaciones de método, nivel, tono y extensión, y compara los textos byte a
+byte. Lo único escrito dos veces es la mecánica del diálogo, porque cada SDK
+tiene la suya.
 
 ---
 

@@ -1,0 +1,27 @@
+{
+  "name": "profesor-mcp",
+  "version": "0.1.0",
+  "description": "Servidor MCP que impone una prosa clara, directa y explicativa: cinco moldes de explicacion (clasico, Cornell, Feynman, manual, libre) con dialogo interactivo.",
+  "license": "MIT",
+  "author": "Carlos Portal",
+  "type": "module",
+  "bin": { "profesor-mcp": "dist/server.js" },
+  "files": ["dist", "README.md"],
+  "keywords": ["mcp", "model-context-protocol", "claude", "llm", "pedagogia", "explicacion"],
+  "repository": { "type": "git", "url": "git+https://github.com/Portaltocoding/profesor-mcp.git", "directory": "ts" },
+  "homepage": "https://github.com/Portaltocoding/profesor-mcp#readme",
+  "bugs": "https://github.com/Portaltocoding/profesor-mcp/issues",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

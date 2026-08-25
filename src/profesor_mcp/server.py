@@ -90,6 +90,7 @@ from pydantic import BaseModel, Field
 #            Con el puedes preguntar (elicit), avisar (log), o reportar progreso.
 #            Hasta ahora tus tools solo devolvian texto y se acababa ahi.
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.types import ClientCapabilities, ElicitationCapability
 
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -726,7 +727,26 @@ async def preguntar(ctx: Context, mensaje: str, formulario: type[BaseModel]):
     FALLA SI : el cliente no sabe abrir dialogos (un cliente de prueba sin
                callback, por ejemplo). Lo capturamos: en vez de reventar,
                devolvemos None y la tool tira con los valores por defecto.
+
+    OJO — POR QUE SE PREGUNTA ANTES DE PREGUNTAR
+               El SDK de Python NO comprueba si el cliente sabe dialogar: manda
+               la peticion igualmente y se queda esperando una respuesta que no
+               va a llegar nunca. No es una excepcion, es un cuelgue, y un
+               except no atrapa un cuelgue.
+
+               (El SDK de TypeScript si lo comprueba y lanza. De ahi que el
+               gemelo de ts/ funcionara y este no: mismo codigo, distinto SDK.)
+
+               Por eso miramos las capacidades declaradas en el handshake antes
+               de abrir la boca. Si el cliente no anuncio 'elicitation', no hay
+               dialogo posible y se cae a los defaults en el acto.
     """
+    if not ctx.session.check_client_capability(
+        ClientCapabilities(elicitation=ElicitationCapability())
+    ):
+        log("[profesor] el cliente no declara 'elicitation' -> por defecto")
+        return None
+
     try:
         resultado = await ctx.elicit(message=mensaje, schema=formulario)
     except Exception as e:  # cliente sin capacidad de dialogo

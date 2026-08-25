@@ -14,3 +14,6 @@ dist/
 
 # Notas de sesion: nunca se comparten
 HANDOFF.md
+
+# Node (paquete de ts/)
+node_modules/

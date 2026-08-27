@@ -105,11 +105,14 @@ function rellenar(molde: string, valores: Record<string, string>): string {
 const ELECCION_MODO: ElicitRequestFormParams['requestedSchema'] = {
   type: 'object',
   properties: {
+    // SIN enum a proposito: con 5 valores, un enum se pinta como selector que
+    // solo se cicla con flecha derecha (hardcodeado en el cliente, no
+    // remapeable). Caja de texto + Enter es mas rapido. La normalizacion y el
+    // fallback a 'clasico' viven en MODOS[modo] ?? MODOS['clasico'] mas abajo.
     modo: {
       type: 'string',
       title: 'Método',
-      description: "Método de explicación ('libre' = sin andamiaje)",
-      enum: ['clasico', 'cornell', 'feynman', 'manual', 'libre'],
+      description: 'Método de explicación: clasico, cornell, feynman, manual o libre (sin andamiaje)',
       default: 'clasico',
     },
     extension: {
@@ -130,18 +133,18 @@ const ELECCION_MODO: ElicitRequestFormParams['requestedSchema'] = {
 const AJUSTE_CLASICO: ElicitRequestFormParams['requestedSchema'] = {
   type: 'object',
   properties: {
+    // SIN enum, misma razon que 'modo': caja de texto + Enter en vez de
+    // ciclar con flecha derecha.
     nivel: {
       type: 'string',
       title: 'Nivel',
-      description: 'Profundidad asumida',
-      enum: ['novato', 'intermedio', 'avanzado'],
+      description: 'Profundidad asumida: novato, intermedio o avanzado',
       default: 'intermedio',
     },
     tono: {
       type: 'string',
       title: 'Tono',
-      description: 'Registro de la prosa',
-      enum: ['formal', 'out of the box'],
+      description: "Registro de la prosa: formal o 'out of the box'",
       default: 'formal',
     },
   },
@@ -161,8 +164,7 @@ const AJUSTE_MANUAL: ElicitRequestFormParams['requestedSchema'] = {
     nivel: {
       type: 'string',
       title: 'Nivel',
-      description: 'Para quién se escribe el capítulo (fija el contrato de entrada)',
-      enum: ['novato', 'intermedio', 'avanzado'],
+      description: 'Para quién se escribe el capítulo: novato, intermedio o avanzado',
       default: 'intermedio',
     },
   },
@@ -279,7 +281,7 @@ mcp.registerTool(
     );
 
     if (eleccion !== null) {
-      modo = texto(eleccion, 'modo', modo);
+      modo = texto(eleccion, 'modo', modo).trim().toLowerCase();
       extension = texto(eleccion, 'extension', extension);
 
       // PASO 2 — LA CASCADA. Solo para los metodos que tienen algo que ajustar.
@@ -289,13 +291,13 @@ mcp.registerTool(
       if (modo === 'clasico') {
         const ajuste = await preguntar('Ajusta la explicación clásica:', AJUSTE_CLASICO);
         if (ajuste !== null) {
-          nivel = texto(ajuste, 'nivel', nivel);
-          tono = texto(ajuste, 'tono', tono);
+          nivel = texto(ajuste, 'nivel', nivel).trim().toLowerCase();
+          tono = texto(ajuste, 'tono', tono).trim().toLowerCase();
         }
       } else if (modo === 'manual') {
         const ajuste = await preguntar('¿Para quién se escribe el capítulo?', AJUSTE_MANUAL);
         if (ajuste !== null) {
-          nivel = texto(ajuste, 'nivel', nivel);
+          nivel = texto(ajuste, 'nivel', nivel).trim().toLowerCase();
         }
       }
     }

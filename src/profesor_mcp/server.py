@@ -655,12 +655,18 @@ class EleccionModo(BaseModel):
     metodo que elijas. Lo que solo vale para 'clasico' vive en el paso 2.
     """
 
-    # QUE HACE : un desplegable con los tres metodos.
-    # OJO      : los valores DEBEN coincidir con las claves de MODOS.
-    #            Misma trampa de siempre, ahora en un sitio mas.
-    modo: Literal["clasico", "cornell", "feynman", "manual", "libre"] = Field(
+    # QUE HACE : una caja de texto, NO un Literal.
+    # POR QUE  : un Literal de 5 valores se pinta como desplegable que solo
+    #            se cicla con flecha derecha (hardcodeado en el cliente, no
+    #            remapeable — confirmado, ver memoria de la sesion). Escribir
+    #            el nombre entero y pulsar Enter es mas rapido que 5 flechazos.
+    # OJO      : sin Literal no hay validacion de formulario. Quien llama
+    #            puede escribir cualquier cosa, asi que abajo se normaliza
+    #            (minusculas, sin espacios) y si no coincide con ningun modo
+    #            se cae a 'clasico' — igual que si hubiera cancelado.
+    modo: str = Field(
         default="clasico",
-        description="Método de explicación ('libre' = sin andamiaje)",
+        description="Método de explicación: clasico, cornell, feynman, manual o libre (sin andamiaje)",
     )
     # OJO : mismos valores que las claves de EXTENSION.
     extension: Literal["normal", "corto"] = Field(
@@ -676,13 +682,16 @@ class AjusteClasico(BaseModel):
     no tendria efecto, asi que ni se pregunta.
     """
 
-    nivel: Literal["novato", "intermedio", "avanzado"] = Field(
+    # SIN Literal, misma razon que 'modo': caja de texto + Enter en vez de
+    # ciclar con flecha derecha. Normalizacion y fallback en el cuerpo de la
+    # tool (NIVELES.get(...) / TONO.get(...)).
+    nivel: str = Field(
         default="intermedio",
-        description="Profundidad asumida",
+        description="Profundidad asumida: novato, intermedio o avanzado",
     )
-    tono: Literal["formal", "out of the box"] = Field(
+    tono: str = Field(
         default="formal",
-        description="Registro de la prosa",
+        description="Registro de la prosa: formal o 'out of the box'",
     )
 
 
@@ -696,9 +705,9 @@ class AjusteManual(BaseModel):
     control que no existe.
     """
 
-    nivel: Literal["novato", "intermedio", "avanzado"] = Field(
+    nivel: str = Field(
         default="intermedio",
-        description="Para quién se escribe el capítulo (fija el contrato de entrada)",
+        description="Para quién se escribe el capítulo: novato, intermedio o avanzado",
     )
 
 
@@ -833,7 +842,7 @@ async def explicar(tema: str, ctx: Context) -> str:
         EleccionModo,
     )
     if eleccion is not None:
-        modo = eleccion.modo
+        modo = eleccion.modo.strip().lower()
         extension = eleccion.extension
 
         # PASO 2 — LA CASCADA. Solo para los metodos que tienen algo que ajustar.
@@ -852,8 +861,8 @@ async def explicar(tema: str, ctx: Context) -> str:
                 AjusteClasico,
             )
             if ajuste is not None:
-                nivel = ajuste.nivel
-                tono = ajuste.tono
+                nivel = ajuste.nivel.strip().lower()
+                tono = ajuste.tono.strip().lower()
 
         elif modo == "manual":
             ajuste = await preguntar(
@@ -862,7 +871,7 @@ async def explicar(tema: str, ctx: Context) -> str:
                 AjusteManual,
             )
             if ajuste is not None:
-                nivel = ajuste.nivel
+                nivel = ajuste.nivel.strip().lower()
 
     log(
         f"[profesor] resuelto -> modo={modo!r}, nivel={nivel!r}, "

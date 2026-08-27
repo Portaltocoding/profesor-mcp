@@ -100,6 +100,21 @@ async def main() -> None:
     # 8. Elige libre -> sin cascada, como los cerrados
     await caso("libre (sin cascada)", [{"modo": "libre"}])
 
+    # 9. 'modo' ya no es un enum (caja de texto): mayusculas/espacios deben
+    #    normalizarse, y un valor que no exista debe caer a clasico.
+    await caso("modo con mayusculas y espacios", [{"modo": " CORNELL "}])
+    await caso("modo invalido -> fallback a clasico", [{"modo": "no-existe"}])
+
+    # 10. 'nivel' y 'tono' tampoco son enum ya: misma normalizacion y fallback.
+    await caso(
+        "nivel/tono con mayusculas y espacios",
+        [{"modo": "clasico"}, {"nivel": " AVANZADO ", "tono": " OUT OF THE BOX "}],
+    )
+    await caso(
+        "nivel/tono invalidos -> fallback a intermedio/formal",
+        [{"modo": "clasico"}, {"nivel": "no-existe", "tono": "no-existe"}],
+    )
+
 
 if __name__ == "__main__":
     asyncio.run(main())

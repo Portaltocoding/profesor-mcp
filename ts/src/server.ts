@@ -44,8 +44,12 @@ const mcp = new McpServer({
 }, {
   instructions:
     "Servidor que impone una prosa explicativa, clara y directa. " +
-    "Usa la tool 'explicar' cuando el usuario pida entender un tema, " +
-    'no solo resolverlo.',
+    "Usa la tool 'explicar' SOLO cuando el unico objetivo del mensaje es " +
+    "entender un concepto, sin ningun problema concreto de por medio. " +
+    "Si el mensaje trae una tarea o un problema que resolver (un conflicto, " +
+    "un error, un 'tengo que hacer X'), no la uses aunque incluya una " +
+    "pregunta con forma de 'que es' o 'como funciona': esa pregunta es " +
+    "instrumental para la tarea, no el objetivo del mensaje.",
 });
 
 /**
@@ -244,9 +248,16 @@ mcp.registerTool(
     description: [
       'Devuelve el andamiaje pedagógico para explicar un tema con prosa clara y directa.',
       '',
-      'Úsala cuando la persona quiera ENTENDER algo, no solo resolverlo: preguntas',
-      'del tipo "qué es X", "cómo funciona Y", "por qué Z", "explícame W".',
-      'No la uses para tareas de ejecución pura (escribe este código, corrige este bug).',
+      'Úsala SOLO cuando el único objetivo del mensaje es entender un concepto',
+      'por sí mismo: "qué es X", "cómo funciona Y", "por qué Z", "explícame W",',
+      'sin ningún problema concreto de por medio.',
+      '',
+      'No la uses si el mensaje trae un problema o una tarea que resolver (un',
+      'conflicto, un error, un "tengo que crear/arreglar esto"), aunque la',
+      'pregunta esté formulada como "qué es" o "cómo funciona": ahí la pregunta',
+      'es instrumental para resolver la tarea, no el objetivo del mensaje.',
+      'Responde directamente y sigue con la tarea. Tampoco para tareas de',
+      'ejecución pura (escribe este código, corrige este bug).',
       '',
       'Al ejecutarse abre un diálogo para que la persona elija el método de',
       'explicación y su extensión, y después los ajustes que ese método admita',
